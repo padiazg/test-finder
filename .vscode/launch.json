@@ -23,6 +23,27 @@
             "args": [
                 "scan", "../tmp"
             ]
-        }
+        },
+        {
+            "name": "scan-single",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "args": [
+                "scan", "../go-testgen"
+            ]
+        },
+                {
+            "name": "scan-multiple-mixed",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "args": [
+                "scan", "../../segel-si"
+            ]
+        },
+
     ]
 }
