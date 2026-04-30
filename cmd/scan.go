@@ -26,17 +26,23 @@ var scanCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(scanCmd)
 	scanCmd.Flags().StringP("output", "o", "table", "Output format (json or table)")
-	scanCmd.Flags().Bool("full", false, "Include fully covereded functions")
+	scanCmd.Flags().Bool("full", false, "Include fully covered functions")
 }
 
 func scanCmdFn(cmd *cobra.Command, args []string) error {
 	// Get flags
-	outputFormat, _ := cmd.Flags().GetString("output")
+	outputFormat, err := cmd.Flags().GetString("output")
+	if err != nil {
+		fmt.Printf("parsing `output` flag: %v", err)
+	}
 	if outputFormat == "" {
 		outputFormat = "table" // default
 	}
 
-	full, _ := cmd.Flags().GetBool("full")
+	full, err := cmd.Flags().GetBool("full")
+	if err != nil {
+		fmt.Printf("parsing `full` flag: %v", err)
+	}
 
 	path := "."
 	if len(args) > 0 {
@@ -58,7 +64,9 @@ func scanCmdFn(cmd *cobra.Command, args []string) error {
 	case "table":
 		outputTable(projects)
 	case "json":
-		outputJSON(projects)
+		if err := outputJSON(projects); err != nil {
+			return err
+		}
 	default:
 		fmt.Printf("Unknown output format: %s. Using table.\n", outputFormat)
 		outputTable(projects)
@@ -71,14 +79,15 @@ func scanCmdFn(cmd *cobra.Command, args []string) error {
 func outputTable(projects []*project.Project) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleLight)
 	t.AppendHeader(table.Row{"Project", "Package", "File", "Function", "Coverage"})
 
-	for _, project := range projects {
-		if len(project.Files) == 0 {
+	for _, prj := range projects {
+		if len(prj.Files) == 0 {
 			continue
 		}
 
-		for _, file := range project.Files {
+		for _, file := range prj.Files {
 			for i, fn := range file.Coverage {
 				var (
 					projectPath string
@@ -87,7 +96,7 @@ func outputTable(projects []*project.Project) {
 				)
 
 				if i == 0 && file.Coverage[0].Name == fn.Name {
-					projectPath = project.Path
+					projectPath = prj.Path
 					packageName = file.Package
 				}
 
@@ -106,15 +115,16 @@ func outputTable(projects []*project.Project) {
 		t.AppendSeparator()
 	}
 
-	t.SetStyle(table.StyleLight)
 	t.Render()
 }
 
-func outputJSON(projects []*project.Project) {
+func outputJSON(projects []*project.Project) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(projects); err != nil {
-		fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error encoding JSON: %w\n", err)
+
 	}
+
+	return nil
 }

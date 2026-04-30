@@ -15,6 +15,7 @@ type Project struct {
 	Module string
 	Path   string
 	Files  []FileNode
+	Error  error
 }
 
 type FileNode struct {
@@ -33,20 +34,27 @@ type FunctionCoverage struct {
 
 type FunctionCoverageList []FunctionCoverage
 
-func (p *Project) Scan(full bool) error {
+func (p *Project) Scan(full bool) {
 	testCmd := exec.Command("go", "test", "-coverprofile=coverage.out", "-cover", "./...")
 	testCmd.Dir = p.Path
 	if err := testCmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: go test failed for project %s: %v\n", p.Path, err)
-		return nil
+		p.Error = fmt.Errorf("go test failed: %w\n", err)
+		return
 	}
+
+	if _, err := os.Stat(filepath.Join(p.Path, "coverage.out")); err != nil {
+		p.Error = fmt.Errorf("coverage file: %w", err)
+		return
+	}
+
 	defer os.Remove(filepath.Join(p.Path, "coverage.out"))
 
 	coverCmd := exec.Command("go", "tool", "cover", "-func=coverage.out")
 	coverCmd.Dir = p.Path
 	out, err := coverCmd.Output()
 	if err != nil {
-		return fmt.Errorf("cover: %w", err)
+		p.Error = fmt.Errorf("cover: %w", err)
+		return
 	}
 
 	re := regexp.MustCompile(`^([^:]+):(\d+):\s+(\S+)\s+([\d.]+)%$`)
@@ -104,8 +112,6 @@ func (p *Project) Scan(full bool) error {
 			return strings.Compare(a.FileName, b.FileName)
 		})
 	}
-
-	return nil
 }
 
 func (c FunctionCoverageList) Average() float64 {

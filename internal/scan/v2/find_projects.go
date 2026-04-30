@@ -43,9 +43,9 @@ func New(config *Config) *Finder {
 
 func (f *Finder) FindProjects() ([]*project.Project, error) {
 	var projects []*project.Project
-	errorChan := make(chan error)
-	pathChan := walkFolder(f.path, errorChan)
-	projectChan := scanProject(f.full, pathChan, errorChan)
+	errorChan := make(chan error, 1)
+	pathChan := f.walkFolder(f.path, errorChan)
+	projectChan := scanProject(f.full, pathChan)
 
 	for {
 		select {
@@ -61,9 +61,8 @@ func (f *Finder) FindProjects() ([]*project.Project, error) {
 }
 
 // func walkFolder(filePath string) ([]*project.Project, error) {
-func walkFolder(filePath string, errorChan chan<- error) <-chan string {
+func (f *Finder) walkFolder(filePath string, errorChan chan<- error) <-chan string {
 	findingChan := make(chan string)
-	ignoredDirs := helpers.IgnoredDirs()
 	visited := make(map[string]bool)
 
 	walkFn := func(currentPath string, info fs.DirEntry, err error) error {
@@ -78,7 +77,7 @@ func walkFolder(filePath string, errorChan chan<- error) <-chan string {
 		visited[absPath] = true
 
 		if info.IsDir() {
-			if slices.Contains(ignoredDirs, info.Name()) {
+			if slices.Contains(f.ignoredDirs, info.Name()) {
 				return filepath.SkipDir
 			}
 
@@ -118,7 +117,7 @@ func walkFolder(filePath string, errorChan chan<- error) <-chan string {
 	return findingChan
 }
 
-func scanProject(full bool, pathChan <-chan string, errorChan chan<- error) <-chan *project.Project {
+func scanProject(full bool, pathChan <-chan string) <-chan *project.Project {
 	projectChan := make(chan *project.Project)
 
 	go func() {
@@ -129,16 +128,10 @@ func scanProject(full bool, pathChan <-chan string, errorChan chan<- error) <-ch
 				break
 			}
 
-			project, err := helpers.ParseModFile(path)
-			if err != nil {
-				errorChan <- err
-				continue
-			}
+			project := helpers.ParseModFile(path)
 
-			err = project.Scan(full)
-			if err != nil {
-				errorChan <- err
-				continue
+			if project.Error == nil {
+				project.Scan(full)
 			}
 
 			projectChan <- project

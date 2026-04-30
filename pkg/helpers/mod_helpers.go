@@ -9,27 +9,30 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-func ParseModFile(filePath string) (*project.Project, error) {
+func ParseModFile(filePath string) *project.Project {
 	absFilePath := AbsolutePath(filePath)
+	project := &project.Project{Path: filepath.Dir(absFilePath)}
 
 	fileData, err := os.ReadFile(absFilePath)
 	if err != nil {
-		return nil, err
+		project.Error = fmt.Errorf("reading %s: %w", absFilePath, err)
+		return project
 	}
 
 	file, err := modfile.Parse(absFilePath, fileData, nil)
 	if err != nil {
-		return nil, err
+		project.Error = fmt.Errorf("parsing %s: %w", absFilePath, err)
+		return project
 	}
 
 	if file.Module.Mod.Path == "" {
-		return nil, nil
+		project.Error = fmt.Errorf("no module readed from %s", absFilePath)
+		return project
 	}
 
-	return &project.Project{
-		Path:   filepath.Dir(absFilePath),
-		Module: file.Module.Mod.Path,
-	}, nil
+	project.Module = file.Module.Mod.Path
+
+	return project
 }
 
 func ParseWorkspaceFile(workspacePath string, basePath string) ([]string, error) {
