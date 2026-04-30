@@ -10,6 +10,7 @@ import (
 )
 
 func ParseModFile(filePath string) *project.Project {
+	// fmt.Printf("parsing: %s\n", filePath)
 	absFilePath := AbsolutePath(filePath)
 	project := &project.Project{Path: filepath.Dir(absFilePath)}
 
@@ -35,7 +36,7 @@ func ParseModFile(filePath string) *project.Project {
 	return project
 }
 
-func ParseWorkspaceFile(workspacePath string, basePath string) ([]string, error) {
+func ParseWorkspaceFile(workspacePath string) ([]string, error) {
 	absWorkspacePath := AbsolutePath(workspacePath)
 	absBasePath := filepath.Dir(absWorkspacePath)
 

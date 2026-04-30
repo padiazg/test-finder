@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/padiazg/test-finder/internal/project"
 	"github.com/padiazg/test-finder/pkg/helpers"
@@ -22,6 +23,11 @@ type Config struct {
 	IgnoredDirs  []string
 	MaxLoopDepth int
 	Full         bool
+}
+
+type findingPair struct {
+	err  error
+	path string
 }
 
 func New(config *Config) *Finder {
@@ -42,27 +48,41 @@ func New(config *Config) *Finder {
 }
 
 func (f *Finder) FindProjects() ([]*project.Project, error) {
-	var projects []*project.Project
-	errorChan := make(chan error, 1)
-	pathChan := f.walkFolder(f.path, errorChan)
-	projectChan := scanProject(f.full, pathChan)
+	var (
+		projects []*project.Project
+		wg       sync.WaitGroup
+	)
+	findingChan := f.walkFolder(f.path)
+	projectChan := make(chan *project.Project, 10)
 
-	for {
-		select {
-		case err := <-errorChan:
-			return nil, fmt.Errorf("FindProjects: %w", err)
-		case prj, ok := <-projectChan:
-			if !ok {
-				return projects, nil
+	wg.Go(func() {
+		for finding := range findingChan {
+			if finding.err != nil {
+				projectChan <- &project.Project{Error: finding.err}
+				continue
 			}
-			projects = append(projects, prj)
+
+			wg.Go(func() { f.parseMod(finding.path, projectChan) })
 		}
+	})
+
+	go func() {
+		wg.Wait()
+		close(projectChan)
+	}()
+
+	for prj := range projectChan {
+		// fmt.Printf("> prj: %s err: %v\n", prj.Module, prj.Error)
+		projects = append(projects, prj)
 	}
+
+	return projects, nil
 }
 
 // func walkFolder(filePath string) ([]*project.Project, error) {
-func (f *Finder) walkFolder(filePath string, errorChan chan<- error) <-chan string {
-	findingChan := make(chan string)
+func (f *Finder) walkFolder(filePath string) <-chan findingPair {
+	findingChan := make(chan findingPair)
+
 	visited := make(map[string]bool)
 
 	walkFn := func(currentPath string, info fs.DirEntry, err error) error {
@@ -88,17 +108,17 @@ func (f *Finder) walkFolder(filePath string, errorChan chan<- error) <-chan stri
 
 		switch base {
 		case "go.mod":
-			findingChan <- absPath
+			findingChan <- findingPair{path: absPath}
 			return filepath.SkipDir
 		case "go.work":
-			modPathList, err := helpers.ParseWorkspaceFile(absPath, absPath)
+			modPathList, err := helpers.ParseWorkspaceFile(absPath)
 			if err != nil {
-				errorChan <- err
+				findingChan <- findingPair{path: absPath, err: err}
 				return filepath.SkipDir
 			}
 
 			for _, path := range modPathList {
-				findingChan <- path
+				findingChan <- findingPair{path: path}
 			}
 
 			return filepath.SkipDir
@@ -109,7 +129,7 @@ func (f *Finder) walkFolder(filePath string, errorChan chan<- error) <-chan stri
 
 	go func() {
 		if err := filepath.WalkDir(filePath, walkFn); err != nil {
-			errorChan <- err
+			findingChan <- findingPair{path: filePath, err: err}
 		}
 		close(findingChan)
 	}()
@@ -117,26 +137,11 @@ func (f *Finder) walkFolder(filePath string, errorChan chan<- error) <-chan stri
 	return findingChan
 }
 
-func scanProject(full bool, pathChan <-chan string) <-chan *project.Project {
-	projectChan := make(chan *project.Project)
+func (f *Finder) parseMod(path string, projectChan chan<- *project.Project) {
+	prj := helpers.ParseModFile(path)
+	if prj.Error == nil {
+		prj.Scan(f.full)
+	}
 
-	go func() {
-		for {
-			path, ok := <-pathChan
-			if !ok {
-				close(projectChan)
-				break
-			}
-
-			project := helpers.ParseModFile(path)
-
-			if project.Error == nil {
-				project.Scan(full)
-			}
-
-			projectChan <- project
-		}
-	}()
-
-	return projectChan
+	projectChan <- prj
 }

@@ -38,16 +38,21 @@ func (p *Project) Scan(full bool) {
 	testCmd := exec.Command("go", "test", "-coverprofile=coverage.out", "-cover", "./...")
 	testCmd.Dir = p.Path
 	if err := testCmd.Run(); err != nil {
-		p.Error = fmt.Errorf("go test failed: %w\n", err)
+		p.Error = fmt.Errorf("go test failed: %w", err)
 		return
 	}
 
-	if _, err := os.Stat(filepath.Join(p.Path, "coverage.out")); err != nil {
+	coverFilePath := filepath.Join(p.Path, "coverage.out")
+	if _, err := os.Stat(coverFilePath); err != nil {
 		p.Error = fmt.Errorf("coverage file: %w", err)
 		return
 	}
 
-	defer os.Remove(filepath.Join(p.Path, "coverage.out"))
+	defer func() {
+		if err := os.Remove(coverFilePath); err != nil {
+			fmt.Printf("removing %s", coverFilePath)
+		}
+	}()
 
 	coverCmd := exec.Command("go", "tool", "cover", "-func=coverage.out")
 	coverCmd.Dir = p.Path
@@ -58,7 +63,6 @@ func (p *Project) Scan(full bool) {
 	}
 
 	re := regexp.MustCompile(`^([^:]+):(\d+):\s+(\S+)\s+([\d.]+)%$`)
-	// var files []FileNode
 	fileMap := make(map[string]*FileNode)
 
 	for line := range strings.SplitSeq(string(out), "\n") {
@@ -72,10 +76,15 @@ func (p *Project) Scan(full bool) {
 		}
 		filePath := matches[1]
 		var lineNum int
-		fmt.Sscanf(matches[2], "%d", &lineNum)
+		if _, err := fmt.Sscanf(matches[2], "%d", &lineNum); err != nil {
+			fmt.Printf("%s: parsing line number", filePath)
+		}
+
 		funcName := matches[3]
 		var cov float64
-		fmt.Sscanf(matches[4], "%f", &cov)
+		if _, err := fmt.Sscanf(matches[4], "%f", &cov); err != nil {
+			fmt.Printf("%s: parsing coverage", filePath)
+		}
 
 		if !full && cov == 100.00 {
 			continue
@@ -117,10 +126,10 @@ func (p *Project) Scan(full bool) {
 func (c FunctionCoverageList) Average() float64 {
 	q := len(c)
 
-	switch {
-	case q == 0:
+	switch q {
+	case 0:
 		return 0.0
-	case q == 1:
+	case 1:
 		return c[0].Coverage
 	default:
 		var sumCoverage float64

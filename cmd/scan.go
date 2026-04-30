@@ -68,9 +68,8 @@ func scanCmdFn(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	default:
-		fmt.Printf("Unknown output format: %s. Using table.\n", outputFormat)
+		fmt.Printf("Unknown output format: %s. Using table.", outputFormat)
 		outputTable(projects)
-
 	}
 
 	return nil
@@ -122,7 +121,7 @@ func outputJSON(projects []*project.Project) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(projects); err != nil {
-		return fmt.Errorf("error encoding JSON: %w\n", err)
+		return fmt.Errorf("error encoding JSON: %w", err)
 
 	}
 
