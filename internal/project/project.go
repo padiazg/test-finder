@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -32,7 +33,7 @@ type FunctionCoverage struct {
 
 type FunctionCoverageList []FunctionCoverage
 
-func (p *Project) Scan() error {
+func (p *Project) Scan(full bool) error {
 	testCmd := exec.Command("go", "test", "-coverprofile=coverage.out", "-cover", "./...")
 	testCmd.Dir = p.Path
 	if err := testCmd.Run(); err != nil {
@@ -68,6 +69,10 @@ func (p *Project) Scan() error {
 		var cov float64
 		fmt.Sscanf(matches[4], "%f", &cov)
 
+		if !full && cov == 100.00 {
+			continue
+		}
+
 		if _, ok := fileMap[filePath]; !ok {
 			fileMap[filePath] = &FileNode{
 				Path:     filePath,
@@ -85,8 +90,19 @@ func (p *Project) Scan() error {
 	if len(fileMap) > 0 {
 		for _, file := range fileMap {
 			file.Average = file.Coverage.Average()
+			if !full && file.Average == 100.0 {
+				continue
+			}
 			p.Files = append(p.Files, *file)
 		}
+
+		slices.SortFunc(p.Files, func(a, b FileNode) int {
+			if cmp := strings.Compare(a.Package, b.Package); cmp != 0 {
+				return cmp
+			}
+
+			return strings.Compare(a.FileName, b.FileName)
+		})
 	}
 
 	return nil
@@ -107,13 +123,4 @@ func (c FunctionCoverageList) Average() float64 {
 		}
 		return sumCoverage / float64(q)
 	}
-}
-
-func getPackage(basePath, filePath string) string {
-	// Safety check: ensure the full path actually starts with the base
-	if !strings.HasPrefix(filePath, basePath) {
-		return "" // or return an error
-	}
-
-	return strings.TrimPrefix(filePath, basePath)
 }

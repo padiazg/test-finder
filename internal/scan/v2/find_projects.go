@@ -14,12 +14,14 @@ type Finder struct {
 	path         string
 	ignoredDirs  []string
 	maxLoopDepth int
+	full         bool
 }
 
 type Config struct {
 	Path         string
 	IgnoredDirs  []string
 	MaxLoopDepth int
+	Full         bool
 }
 
 func New(config *Config) *Finder {
@@ -35,6 +37,7 @@ func New(config *Config) *Finder {
 		path:         config.Path,
 		ignoredDirs:  config.IgnoredDirs,
 		maxLoopDepth: config.MaxLoopDepth,
+		full:         config.Full,
 	}
 }
 
@@ -42,7 +45,7 @@ func (f *Finder) FindProjects() ([]*project.Project, error) {
 	var projects []*project.Project
 	errorChan := make(chan error)
 	pathChan := walkFolder(f.path, errorChan)
-	projectChan := scanFolder(pathChan, errorChan)
+	projectChan := scanProject(f.full, pathChan, errorChan)
 
 	for {
 		select {
@@ -115,7 +118,7 @@ func walkFolder(filePath string, errorChan chan<- error) <-chan string {
 	return findingChan
 }
 
-func scanFolder(pathChan <-chan string, errorChan chan<- error) <-chan *project.Project {
+func scanProject(full bool, pathChan <-chan string, errorChan chan<- error) <-chan *project.Project {
 	projectChan := make(chan *project.Project)
 
 	go func() {
@@ -132,7 +135,7 @@ func scanFolder(pathChan <-chan string, errorChan chan<- error) <-chan *project.
 				continue
 			}
 
-			err = project.Scan()
+			err = project.Scan(full)
 			if err != nil {
 				errorChan <- err
 				continue

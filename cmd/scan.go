@@ -4,6 +4,7 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -24,9 +25,19 @@ var scanCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(scanCmd)
+	scanCmd.Flags().StringP("output", "o", "table", "Output format (json or table)")
+	scanCmd.Flags().Bool("full", false, "Include fully covereded functions")
 }
 
 func scanCmdFn(cmd *cobra.Command, args []string) error {
+	// Get flags
+	outputFormat, _ := cmd.Flags().GetString("output")
+	if outputFormat == "" {
+		outputFormat = "table" // default
+	}
+
+	full, _ := cmd.Flags().GetBool("full")
+
 	path := "."
 	if len(args) > 0 {
 		path = args[0]
@@ -35,6 +46,7 @@ func scanCmdFn(cmd *cobra.Command, args []string) error {
 	finder := scan.New(&scan.Config{
 		Path:        path,
 		IgnoredDirs: helpers.IgnoredDirs(),
+		Full:        full,
 	})
 
 	projects, err := finder.FindProjects()
@@ -42,12 +54,21 @@ func scanCmdFn(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("scan finding projects: %w", err)
 	}
 
-	outputTable(projects, true)
+	switch outputFormat {
+	case "table":
+		outputTable(projects)
+	case "json":
+		outputJSON(projects)
+	default:
+		fmt.Printf("Unknown output format: %s. Using table.\n", outputFormat)
+		outputTable(projects)
+
+	}
 
 	return nil
 }
 
-func outputTable(projects []*project.Project, listPartial bool) {
+func outputTable(projects []*project.Project) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(table.Row{"Project", "Package", "File", "Function", "Coverage"})
@@ -58,10 +79,6 @@ func outputTable(projects []*project.Project, listPartial bool) {
 		}
 
 		for _, file := range project.Files {
-			if file.Average >= 100.00 {
-				continue
-			}
-
 			for i, fn := range file.Coverage {
 				var (
 					projectPath string
@@ -91,4 +108,13 @@ func outputTable(projects []*project.Project, listPartial bool) {
 
 	t.SetStyle(table.StyleLight)
 	t.Render()
+}
+
+func outputJSON(projects []*project.Project) {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(projects); err != nil {
+		fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
+		os.Exit(1)
+	}
 }
