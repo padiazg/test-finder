@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,14 +9,16 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	scanerrors "github.com/padiazg/test-finder/pkg/scan_errors"
 )
 
 type Project struct {
-	// Name    string
-	Module string
-	Path   string
-	Files  []FileNode
-	Error  error
+	Error    error
+	Module   string
+	Path     string
+	Files    []FileNode
+	Warnings []string
 }
 
 type FileNode struct {
@@ -34,32 +37,48 @@ type FunctionCoverage struct {
 
 type FunctionCoverageList []FunctionCoverage
 
-func (p *Project) Scan(full bool) {
-	testCmd := exec.Command("go", "test", "-coverprofile=coverage.out", "-cover", "./...")
+func (p *Project) Scan(ctx context.Context, full bool) *Project {
+	coverFilePath := filepath.Join(p.Path, "coverage.out")
+	testCmd := exec.CommandContext(ctx, "go", "test", "-coverprofile=coverage.out", "-cover", "./...")
 	testCmd.Dir = p.Path
-	if err := testCmd.Run(); err != nil {
-		p.Error = fmt.Errorf("go test failed: %w", err)
-		return
+
+	// check if there is a coverage file
+	if _, err := os.Stat(coverFilePath); err == nil {
+		if err := os.Remove(coverFilePath); err != nil {
+			p.Error = &scanerrors.ScanWarning{Err: fmt.Errorf("unable to remove coverage.out: %w", err)}
+			return p
+		}
 	}
 
-	coverFilePath := filepath.Join(p.Path, "coverage.out")
+	// the test count fail partially and still produce a coverage file we can use
+	if err := testCmd.Run(); err != nil {
+		p.Warnings = append(p.Warnings, fmt.Sprintf("go test failed: %v\n", err))
+	}
+
+	// cover file not found, can't continue
 	if _, err := os.Stat(coverFilePath); err != nil {
-		p.Error = fmt.Errorf("coverage file: %w", err)
-		return
+		p.Error = &scanerrors.ScanWarning{Err: fmt.Errorf("cover file: %w", err)}
+		return p
 	}
 
 	defer func() {
 		if err := os.Remove(coverFilePath); err != nil {
-			fmt.Printf("removing %s", coverFilePath)
+			p.Warnings = append(p.Warnings, fmt.Sprintf("removing %s", coverFilePath))
 		}
 	}()
 
-	coverCmd := exec.Command("go", "tool", "cover", "-func=coverage.out")
+	coverCmd := exec.CommandContext(ctx, "go", "tool", "cover", "-func=coverage.out")
 	coverCmd.Dir = p.Path
 	out, err := coverCmd.Output()
 	if err != nil {
-		p.Error = fmt.Errorf("cover: %w", err)
-		return
+		if ctx.Err() != nil {
+			fmt.Printf("cover: %v\n", ctx.Err())
+			p.Error = &scanerrors.ScanTimeout{Err: ctx.Err()}
+		} else {
+			fmt.Printf("cover: %v\n", err)
+			p.Error = &scanerrors.ScanWarning{Err: err}
+		}
+		return p
 	}
 
 	re := regexp.MustCompile(`^([^:]+):(\d+):\s+(\S+)\s+([\d.]+)%$`)
@@ -77,13 +96,14 @@ func (p *Project) Scan(full bool) {
 		filePath := matches[1]
 		var lineNum int
 		if _, err := fmt.Sscanf(matches[2], "%d", &lineNum); err != nil {
-			fmt.Printf("%s: parsing line number", filePath)
+			p.Warnings = append(p.Warnings, fmt.Sprintf("%s: parsing line number\n", filePath))
+
 		}
 
 		funcName := matches[3]
 		var cov float64
 		if _, err := fmt.Sscanf(matches[4], "%f", &cov); err != nil {
-			fmt.Printf("%s: parsing coverage", filePath)
+			p.Warnings = append(p.Warnings, fmt.Sprintf("%s: parsing coverage\n", filePath))
 		}
 
 		if !full && cov == 100.00 {
@@ -121,6 +141,8 @@ func (p *Project) Scan(full bool) {
 			return strings.Compare(a.FileName, b.FileName)
 		})
 	}
+
+	return p
 }
 
 func (c FunctionCoverageList) Average() float64 {

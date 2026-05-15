@@ -11,7 +11,7 @@
             "mode": "auto",
             "program": "${workspaceFolder}",
             "args": [
-                "scan", "../../segel-si/possible-payments/"
+                "scan", "../../segel-si/possible-payments/", //"--timeout", "2s"
             ]
         },
         {
@@ -31,7 +31,7 @@
             "mode": "auto",
             "program": "${workspaceFolder}",
             "args": [
-                "scan", "../../segel-si/possible-payments/services/authorizer", "--full"
+                "scan", "../../segel-si/iot", "--full"
             ]
         },
                 {
