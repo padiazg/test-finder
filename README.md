@@ -1,5 +1,9 @@
 # test-finder
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/padiazg/test-finder.svg)](https://pkg.go.dev/github.com/padiazg/test-finder)
+[![Go Report Card](https://goreportcard.com/badge/github.com/padiazg/test-finder)](https://goreportcard.com/report/github.com/padiazg/test-finder)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A CLI tool to discover Go modules and analyze their test coverage across directories.
 
 ## Overview
